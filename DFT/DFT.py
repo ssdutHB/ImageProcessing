@@ -108,7 +108,6 @@ def FFT1d(signal):
     if L == 1:
         return signal
     ret = np.zeros(signal.shape, dtype = np.complex)
-    half_signal = signal[0:L/2]
     even_part = FFT1d(signal[::2])
     odd_part = FFT1d(signal[1::2])
 
@@ -138,62 +137,221 @@ def IFFT2d(img):
     ret = ret.conjugate()
     return ret
 
+def filterImg(img, filter):
+    return img * filter
 
-h0 = 200
-w0 = 100
-H = 128
-W = 128
-img_path = "ori_110.png"
-# img = np.asarray(PIL.Image.open(img_path))
-img = cv2.imread(img_path)
-img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-img = img.astype(np.float)
-img = img[h0:h0+H, w0:w0+W]
-plt.subplot(241),plt.imshow(img,'gray'),plt.title('input'),plt.xticks([]),plt.yticks([])
-H, W = img.shape
-# print(img)
+# naive way with for loop
+def getGaussianFilterNaive(H, W, D0):
+    ret = np.zeros((H, W), dtype = np.float)
+    center_H = H / 2
+    Center_W = W / 2
+    for h in range(H):
+        for w in range(W):
+            ret[h, w] = np.exp(-1.0 * (np.power(h - center_H, 2) + np.power(w - Center_W, 2)) / (2 * D0 * D0))
+    return ret
+
+def getGaussianFilter(H, W, D0):
+    ret = np.zeros((H, W), dtype = np.float)
+    center_H = H / 2
+    Center_W = W / 2
+    r = np.arange(H)
+    c = np.arange(W)
+    rr, cc = np.meshgrid(r, c, indexing='ij')
+    ret = np.exp(-1.0 * (np.power(rr - center_H, 2) + np.power(cc - Center_W, 2)) / (2 * D0 * D0))
+    return ret
+
+def filterWithGaussian(img, D0):
+    H, W = img.shape
+    s_img = shiftImg(img)
+    dft_result = FFT2d(s_img)
+
+    gaussian_filter = getGaussianFilter(H, W, D0)
+    filter_dft_result = filterImg(dft_result, gaussian_filter)
+
+    idft_result = IFFT2d(filter_dft_result)
+    idft_real = idft_result.real
+    rebuild_img = shiftImg(idft_real)
+
+    return gaussian_filter, rebuild_img
+
+def filterWithGaussianHigh(img, D0):
+    H, W = img.shape
+    s_img = shiftImg(img)
+    dft_result = FFT2d(s_img)
+
+    gaussian_filter = 1 - getGaussianFilter(H, W, D0)
+    filter_dft_result = filterImg(dft_result, gaussian_filter)
+
+    idft_result = IFFT2d(filter_dft_result)
+    idft_real = idft_result.real
+    rebuild_img = shiftImg(idft_real)
+
+    return gaussian_filter, rebuild_img
+
+# implementation of (I)DFT and (I)FFT
+def assignment1():
+    h0 = 0
+    w0 = 0
+    H = 128
+    W = 128
+    img_path = "Fig0431(d)(blown_ic_crop).tif"
+    # img = np.asarray(PIL.Image.open(img_path))
+    img = cv2.imread(img_path)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    img = img.astype(np.float)
+    # img = img[h0:h0+H, w0:w0+W]
+    img = cv2.resize(img, (H, W))
+    plt.subplot(241),plt.imshow(img,'gray'),plt.title('input'),plt.xticks([]),plt.yticks([])
+    H, W = img.shape
+    print(H, W)
+    # print(img)
+
+    padded_img = img
+    # if you need filtering, you should pad the image to avoid ringing.
+    padded_img = np.zeros([W * 2, H * 2])
+    padded_img[0:H, 0:W] = img
+
+    f=np.fft.fft2(padded_img)
+    fshift=np.fft.fftshift(f)
+    magnitude_spectrum=20*np.log(np.abs(fshift))
+    plt.subplot(245),plt.imshow(magnitude_spectrum,'gray'),plt.title('refer_log_freq'),plt.xticks([]),plt.yticks([])
 
 
-f=np.fft.fft2(img)
-fshift=np.fft.fftshift(f)
-magnitude_spectrum=20*np.log(np.abs(fshift))
-plt.subplot(245),plt.imshow(magnitude_spectrum,'gray'),plt.title('refer_log_freq'),plt.xticks([]),plt.yticks([])
+    padded_H, padded_W = padded_img.shape
+    cv2.imwrite("padded_img.png", padded_img)
 
-padded_img = img
-# if you need filtering, you should pad the image to avoid ringing.
-# padded_img = np.zeros([W * 2, H * 2])
-# padded_img[0:H, 0:W] = img
+    shifted_img = shiftImg(padded_img)
+    cv2.imwrite("centered.png", prepareShow(shifted_img[0:H,0:W]))
 
-padded_H, padded_W = padded_img.shape
-cv2.imwrite("padded_img.png", padded_img)
+    # dft_result = naiveDFT(shifted_img)
+    # dft_result = separateDFT(shifted_img)
+    dft_result = FFT2d(shifted_img)
 
-shifted_img = shiftImg(padded_img)
-cv2.imwrite("centered.png", prepareShow(shifted_img[0:H,0:W]))
+    # log_freq=20*np.log(np.abs(dft_result))
+    log_freq = 1 + np.log(np.abs(dft_result))
+    angle = np.angle(dft_result)
+    plt.subplot(242),plt.imshow(angle,'gray'),plt.title('angle'),plt.xticks([]),plt.yticks([])
+    cv2.imwrite("log_freq.png", prepareShow(log_freq))
+    plt.subplot(243),plt.imshow(log_freq,'gray'),plt.title('log_freq'),plt.xticks([]),plt.yticks([])
 
-# dft_result = naiveDFT(shifted_img)
-# dft_result = separateDFT(shifted_img)
-dft_result = FFT2d(shifted_img)
+    # idft_result = naiveIDFT(dft_result)
+    # idft_result = separateIDFT(dft_result)
+    # idft_result = reusedIDFT(dft_result)
+    idft_result = IFFT2d(dft_result)
 
-log_freq=20*np.log(np.abs(dft_result))
-angle = np.angle(dft_result)
-plt.subplot(242),plt.imshow(angle,'gray'),plt.title('angle'),plt.xticks([]),plt.yticks([])
-cv2.imwrite("log_freq.png", prepareShow(log_freq))
-plt.subplot(243),plt.imshow(log_freq,'gray'),plt.title('log_freq'),plt.xticks([]),plt.yticks([])
+    idft_real = idft_result.real
+    rebuild_img = shiftImg(idft_real)
+    cv2.imwrite("rebuild_img.png", prepareShow(rebuild_img))
+    plt.subplot(244),plt.imshow(prepareShow(rebuild_img),'gray'),plt.title('rebuild_img'),plt.xticks([]),plt.yticks([])
 
-# idft_result = naiveIDFT(dft_result)
-# idft_result = separateIDFT(dft_result)
-# idft_result = reusedIDFT(dft_result)
-idft_result = IFFT2d(dft_result)
-
-idft_real = idft_result.real
-rebuild_img = shiftImg(idft_real)
-cv2.imwrite("rebuild_img.png", prepareShow(rebuild_img))
-plt.subplot(244),plt.imshow(prepareShow(rebuild_img),'gray'),plt.title('rebuild_img'),plt.xticks([]),plt.yticks([])
-
-plt.show()
+    plt.show()
 
 
+# gaussian low pass filter
+def assignment2():
+    h0 = 0
+    w0 = 0
+    H = 128
+    W = 128
+    img_path = "Fig0441(a)(characters_test_pattern).tif"
+    img = cv2.imread(img_path)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    img = img.astype(np.float)
+    img = cv2.resize(img, (H, W))
+    plt.subplot(261),plt.imshow(img,'gray'),plt.title('input'),plt.xticks([]),plt.yticks([])
+
+    s_img = shiftImg(img)
+    dft_result = FFT2d(s_img)
+
+    log_freq = 1 + np.log(np.abs(dft_result))
+    angle = np.angle(dft_result)
+    plt.subplot(267),plt.imshow(log_freq,'gray'),plt.title('log_freq'),plt.xticks([]),plt.yticks([])
+
+    gaussian_filter, rebuild_img = filterWithGaussian(img, H/60)
+    plt.subplot(262),plt.imshow(gaussian_filter,'gray'),plt.title('D0=H/60'),plt.xticks([]),plt.yticks([])
+    plt.subplot(268),plt.imshow(prepareShow(rebuild_img),'gray'),plt.title('D0=H/60'),plt.xticks([]),plt.yticks([])
+
+    gaussian_filter, rebuild_img = filterWithGaussian(img, H/20)
+    plt.subplot(263),plt.imshow(gaussian_filter,'gray'),plt.title('D0=H/20'),plt.xticks([]),plt.yticks([])
+    plt.subplot(269),plt.imshow(prepareShow(rebuild_img),'gray'),plt.title('D0=H/20'),plt.xticks([]),plt.yticks([])
+
+    gaussian_filter, rebuild_img = filterWithGaussian(img, H/10)
+    plt.subplot(264),plt.imshow(gaussian_filter,'gray'),plt.title('D0=H/10'),plt.xticks([]),plt.yticks([])
+    plt.subplot(2,6,10),plt.imshow(prepareShow(rebuild_img),'gray'),plt.title('D0=H/10'),plt.xticks([]),plt.yticks([])
+
+    gaussian_filter, rebuild_img = filterWithGaussian(img, H/4)
+    plt.subplot(265),plt.imshow(gaussian_filter,'gray'),plt.title('D0=H/4'),plt.xticks([]),plt.yticks([])
+    plt.subplot(2,6,11),plt.imshow(prepareShow(rebuild_img),'gray'),plt.title('D0=H/4'),plt.xticks([]),plt.yticks([])
+
+    gaussian_filter, rebuild_img = filterWithGaussian(img, H/3*2)
+    plt.subplot(266),plt.imshow(gaussian_filter,'gray'),plt.title('D0=H/3*2'),plt.xticks([]),plt.yticks([])
+    plt.subplot(2,6,12),plt.imshow(prepareShow(rebuild_img),'gray'),plt.title('D0=H/3*2'),plt.xticks([]),plt.yticks([])
+
+    plt.show()
 
 
+# gaussian high pass filter
+def assignment3():
+    h0 = 0
+    w0 = 0
+    H = 128
+    W = 128
+    img_path = "Fig0441(a)(characters_test_pattern).tif"
+    img = cv2.imread(img_path)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    img = img.astype(np.float)
+    img = cv2.resize(img, (H, W))
+    plt.subplot(261),plt.imshow(img,'gray'),plt.title('input'),plt.xticks([]),plt.yticks([])
 
+    s_img = shiftImg(img)
+    dft_result = FFT2d(s_img)
 
+    log_freq = 1 + np.log(np.abs(dft_result))
+    angle = np.angle(dft_result)
+    plt.subplot(267),plt.imshow(log_freq,'gray'),plt.title('log_freq'),plt.xticks([]),plt.yticks([])
+
+    gaussian_filter, rebuild_img = filterWithGaussianHigh(img, H/60)
+    plt.subplot(262),plt.imshow(gaussian_filter,'gray'),plt.title('D0=H/60'),plt.xticks([]),plt.yticks([])
+    plt.subplot(268),plt.imshow(prepareShow(rebuild_img),'gray'),plt.title('D0=H/60'),plt.xticks([]),plt.yticks([])
+
+    gaussian_filter, rebuild_img = filterWithGaussianHigh(img, H/20)
+    plt.subplot(263),plt.imshow(gaussian_filter,'gray'),plt.title('D0=H/20'),plt.xticks([]),plt.yticks([])
+    plt.subplot(269),plt.imshow(prepareShow(rebuild_img),'gray'),plt.title('D0=H/20'),plt.xticks([]),plt.yticks([])
+
+    gaussian_filter, rebuild_img = filterWithGaussianHigh(img, H/10)
+    plt.subplot(264),plt.imshow(gaussian_filter,'gray'),plt.title('D0=H/10'),plt.xticks([]),plt.yticks([])
+    plt.subplot(2,6,10),plt.imshow(prepareShow(rebuild_img),'gray'),plt.title('D0=H/10'),plt.xticks([]),plt.yticks([])
+
+    gaussian_filter, rebuild_img = filterWithGaussianHigh(img, H/4)
+    plt.subplot(265),plt.imshow(gaussian_filter,'gray'),plt.title('D0=H/4'),plt.xticks([]),plt.yticks([])
+    plt.subplot(2,6,11),plt.imshow(prepareShow(rebuild_img),'gray'),plt.title('D0=H/4'),plt.xticks([]),plt.yticks([])
+
+    gaussian_filter, rebuild_img = filterWithGaussianHigh(img, H/3*2)
+    plt.subplot(266),plt.imshow(gaussian_filter,'gray'),plt.title('D0=H/3*2'),plt.xticks([]),plt.yticks([])
+    plt.subplot(2,6,12),plt.imshow(prepareShow(rebuild_img),'gray'),plt.title('D0=H/3*2'),plt.xticks([]),plt.yticks([])
+
+    plt.show()
+
+def assignment4():
+    h0 = 0
+    w0 = 0
+    H = 256
+    W = 256
+    threshold = 0
+    img_path = "Fig0457(a)(thumb_print).tif"
+    img = cv2.imread(img_path)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    img = img.astype(np.float)
+    img = cv2.resize(img, (H, W))
+    plt.subplot(131),plt.imshow(img,'gray'),plt.title('input'),plt.xticks([]),plt.yticks([])
+
+    gaussian_filter, rebuild_img = filterWithGaussianHigh(img, H/4)
+    plt.subplot(132),plt.imshow(prepareShow(rebuild_img),'gray'),plt.title('D0=H/4'),plt.xticks([]),plt.yticks([])
+    print(np.max(rebuild_img), np.min(rebuild_img))
+
+    binary_img = np.where(rebuild_img > threshold, 255, 0)
+    plt.subplot(133),plt.imshow(prepareShow(binary_img),'gray'),plt.title('binary_img'),plt.xticks([]),plt.yticks([])
+
+    plt.show()
+
+assignment2()
